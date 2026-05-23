@@ -7,7 +7,7 @@
     "./client": "./src/client.ts",
     "./keys": "./src/keys.ts",
     "./redis": "./src/redis.ts",
-    "./queries/topic-summaries": "./src/queries/topic-summaries.ts"
+    "./queries/*": "./src/queries/*.ts"
   },
   "scripts": {
     "clean": "git clean -xdf .turbo dist node_modules",

@@ -46,8 +46,6 @@ export function trimmed(value: unknown): string | undefined {
     : undefined;
 }
 
-const WHITESPACE_RE = /\s+/;
-
 export function splitArgs(text: string): string[] {
-  return text.trim().split(WHITESPACE_RE).filter(Boolean);
+  return text.trim().split(/\s+/).filter(Boolean);
 }
