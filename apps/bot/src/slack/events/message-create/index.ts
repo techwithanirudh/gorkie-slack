@@ -1,5 +1,6 @@
 import { toLogError } from '@repo/utils/error';
 import { env } from '@/env';
+import { runTopicHeuristic } from '@/slack/features/topic-summaries/topic-generator';
 import { isUserAllowed } from '@/lib/allowed-users';
 import logger from '@/lib/logger';
 import { getQueue } from '@/lib/queue';
@@ -119,6 +120,8 @@ export async function execute(args: MessageEventArgs): Promise<void> {
   if (!messageContext) {
     return;
   }
+
+  runTopicHeuristic(messageContext).catch(() => null);
 
   const ctxId = getContextId(messageContext);
   const trigger = await getTrigger(messageContext, messageContext.botUserId);
