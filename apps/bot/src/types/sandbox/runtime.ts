@@ -3,6 +3,7 @@ import type { PiRpcClient } from '@/lib/sandbox/rpc/client';
 
 export interface ResolvedSandboxSession {
   client: PiRpcClient;
+  createdAt: Date;
   sandbox: Sandbox;
 }
 

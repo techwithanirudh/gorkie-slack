@@ -18,8 +18,18 @@ function resolveEndAtMs(endAt: unknown): number {
 
 export async function extendSandboxTimeout(
   sandbox: Sandbox,
+  createdAt: Date,
   minimumTimeoutMs?: number
 ): Promise<void> {
+  const lifetimeRemainingMs = Math.max(
+    0,
+    createdAt.getTime() + config.maxLifetimeMs - Date.now()
+  );
+
+  if (lifetimeRemainingMs === 0) {
+    return;
+  }
+
   const requiredRemainingMs = Math.max(
     config.rpc.commandTimeoutMs,
     minimumTimeoutMs ?? 0
@@ -34,7 +44,7 @@ export async function extendSandboxTimeout(
       return;
     }
 
-    await sandbox.setTimeout(config.timeoutMs);
+    await sandbox.setTimeout(Math.min(config.timeoutMs, lifetimeRemainingMs));
   } catch (error) {
     logger.warn(
       { ...toLogError(error), requiredRemainingMs },
