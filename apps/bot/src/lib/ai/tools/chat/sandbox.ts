@@ -10,7 +10,11 @@ import logger from '@/lib/logger';
 import { clearSandboxClient, setSandboxClient } from '@/lib/sandbox/active';
 import { syncAttachments } from '@/lib/sandbox/attachments';
 import { getResponse, subscribeEvents } from '@/lib/sandbox/events';
-import { pauseSession, resolveSession } from '@/lib/sandbox/session';
+import {
+  killSession,
+  pauseSession,
+  resolveSession,
+} from '@/lib/sandbox/session';
 import { extendSandboxTimeout } from '@/lib/sandbox/timeout';
 import { getToolTaskEnd, getToolTaskStart } from '@/lib/sandbox/tools';
 import type { SlackFile, SlackMessageContext, Stream } from '@/types';
@@ -79,6 +83,7 @@ export const sandbox = ({
     execute: async ({ task }, { toolCallId }) => {
       const ctxId = getContextId(context);
       let runtime: Awaited<ReturnType<typeof resolveSession>> | null = null;
+      let lifetimeExpired = false;
       const tasks = new Map<string, string>();
       const queue = new PQueue({ concurrency: 1 });
       const enqueue = (fn: () => Promise<unknown>) => {
@@ -103,11 +108,25 @@ export const sandbox = ({
           throw new Error('[sandbox] Failed to resolve runtime session');
         }
         const session = runtime;
+        const lifetimeRemainingMs = Math.max(
+          0,
+          session.createdAt.getTime() + config.maxLifetimeMs - Date.now()
+        );
+        if (lifetimeRemainingMs === 0) {
+          throw new Error(
+            '[sandbox] Sandbox lifetime limit reached (30 minutes)'
+          );
+        }
+
         setSandboxClient(ctxId, session.client);
         const uploads = await syncAttachments(session.sandbox, context, files);
         const prompt = `${task}${uploads.length > 0 ? `\n\n<files>\n${JSON.stringify(uploads, null, 2)}\n</files>` : ''}\n\nUpload results with showFile as soon as they are ready, do not wait until the end. End with a structured summary (Summary/Files/Notes).`;
         const keepSandboxAlive = () =>
-          extendSandboxTimeout(session.sandbox, SANDBOX_MIN_REMAINING_MS);
+          extendSandboxTimeout(
+            session.sandbox,
+            session.createdAt,
+            SANDBOX_MIN_REMAINING_MS
+          );
 
         const eventStream: AgentSessionEvent[] = [];
         const unsubscribe = subscribeEvents({
@@ -171,23 +190,37 @@ export const sandbox = ({
           enqueue(() => updateTask(stream, { taskId, status: 'in_progress' }));
         }, KEEP_ALIVE_INTERVAL_MS);
 
-        let timeoutId: ReturnType<typeof setTimeout> | undefined;
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          timeoutId = setTimeout(
+        let execTimeoutId: ReturnType<typeof setTimeout> | undefined;
+        let lifetimeTimeoutId: ReturnType<typeof setTimeout> | undefined;
+        const execTimeoutPromise = new Promise<never>((_, reject) => {
+          execTimeoutId = setTimeout(
             () => reject(new Error('[sandbox] Execution timed out')),
             config.runtime.executionTimeoutMs
           );
+        });
+        const lifetimeTimeoutPromise = new Promise<never>((_, reject) => {
+          lifetimeTimeoutId = setTimeout(() => {
+            lifetimeExpired = true;
+            reject(
+              new Error('[sandbox] Sandbox lifetime limit reached (30 minutes)')
+            );
+          }, lifetimeRemainingMs);
         });
 
         try {
           const idle = session.client.waitForIdle();
           await session.client.prompt(prompt);
-          await Promise.race([idle, timeoutPromise]);
+          await Promise.race([
+            idle,
+            execTimeoutPromise,
+            lifetimeTimeoutPromise,
+          ]);
         } catch (error) {
           await session.client.abort().catch(() => null);
           throw error;
         } finally {
-          clearTimeout(timeoutId);
+          clearTimeout(execTimeoutId);
+          clearTimeout(lifetimeTimeoutId);
           clearInterval(keepAlive);
           unsubscribe();
         }
@@ -257,14 +290,25 @@ export const sandbox = ({
             );
           });
           if (env.NODE_ENV === 'production') {
-            await pauseSession(context, runtime.sandbox.sandboxId).catch(
-              (error: unknown) => {
-                logger.debug(
-                  { ...toLogError(error), ctxId },
-                  '[sandbox] Failed to pause sandbox session'
-                );
-              }
-            );
+            if (lifetimeExpired) {
+              await killSession(context, runtime.sandbox.sandboxId).catch(
+                (error: unknown) => {
+                  logger.debug(
+                    { ...toLogError(error), ctxId },
+                    '[sandbox] Failed to kill sandbox session'
+                  );
+                }
+              );
+            } else {
+              await pauseSession(context, runtime.sandbox.sandboxId).catch(
+                (error: unknown) => {
+                  logger.debug(
+                    { ...toLogError(error), ctxId },
+                    '[sandbox] Failed to pause sandbox session'
+                  );
+                }
+              );
+            }
           }
         }
       }

@@ -63,6 +63,7 @@ export const sandbox = {
     baseDelayMs: 2000,
   },
   timeoutMs: 10 * 60 * 1000,
+  maxLifetimeMs: 30 * 60 * 1000,
   autoDeleteAfterMs: 7 * 24 * 60 * 60 * 1000,
   janitorIntervalMs: 60 * 1000,
   rpc: {

@@ -116,6 +116,7 @@ async function createSandbox(
   threadId: string
 ): Promise<ResolvedSandboxSession> {
   const template = config.template;
+  const createdAt = new Date();
 
   const sandbox = await Sandbox.betaCreate(template, {
     apiKey: env.E2B_API_KEY,
@@ -148,7 +149,7 @@ async function createSandbox(
       '[sandbox] Created sandbox'
     );
 
-    return { client, sandbox };
+    return { client, sandbox, createdAt };
   } catch (error) {
     await client?.disconnect().catch(() => null);
     await revokeSandboxToken({ sandboxId: sandbox.sandboxId }).catch(
@@ -164,7 +165,8 @@ async function createSandbox(
 async function resumeSandbox(
   threadId: string,
   sandboxId: string,
-  sessionId: string
+  sessionId: string,
+  createdAt: Date
 ): Promise<ResolvedSandboxSession> {
   const sandbox = await connectSandbox(sandboxId);
 
@@ -199,7 +201,7 @@ async function resumeSandbox(
       });
       await markActivity(threadId);
 
-      return { client, sandbox };
+      return { client, sandbox, createdAt };
     } catch (error) {
       await client.disconnect().catch(() => null);
       throw error;
@@ -231,7 +233,8 @@ export async function resolveSession(
     return await resumeSandbox(
       threadId,
       existing.sandboxId,
-      existing.sessionId
+      existing.sessionId,
+      existing.createdAt
     ).catch((error: unknown) => {
       if (isMissingSandboxError(error)) {
         return createSandbox(context, threadId);
@@ -262,6 +265,27 @@ export async function pauseSession(
     logger.warn(
       { ...toLogError(error), threadId, sandboxId },
       '[sandbox] Failed to pause sandbox'
+    );
+  }
+}
+
+export async function killSession(
+  context: SlackMessageContext,
+  sandboxId: string
+): Promise<void> {
+  const threadId = getContextId(context);
+
+  try {
+    await Sandbox.kill(sandboxId, { apiKey: env.E2B_API_KEY });
+    await clearDestroyed(threadId);
+    logger.info(
+      { threadId, sandboxId },
+      '[sandbox] Killed sandbox (lifetime expired)'
+    );
+  } catch (error) {
+    logger.warn(
+      { ...toLogError(error), threadId, sandboxId },
+      '[sandbox] Failed to kill sandbox'
     );
   }
 }
