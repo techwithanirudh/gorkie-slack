@@ -3,6 +3,8 @@
     "dockerfile": "./Dockerfile",
     "context": "."
   },
+  "workspaceMount": "source=/workspaces,target=/workspaces,type=bind",
+  "workspaceFolder": "/workspaces/gorkie-slack",
   "features": {
     "ghcr.io/devcontainers/features/common-utils:2": {
       "username": "coder",
@@ -56,7 +58,8 @@
     }
   },
   "postStartCommand": {
-    "docker": "sudo service docker start"
+    "docker": "sudo service docker start",
+    "workspace-persistence": "mountpoint -q /workspaces && test -d /workspaces/gorkie-slack"
   },
   "postCreateCommand": ["./.devcontainer/scripts/post-create.sh"]
 }
